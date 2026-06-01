@@ -11,6 +11,14 @@
 *.rar
 hs_err_pid*
 
+# Environment files - all locations
+**/.env
+**/.env.*
+infrastructure/.env
+
+# Target folders - all locations
+**/target/
+
 # ===========================
 # Maven
 # ===========================
