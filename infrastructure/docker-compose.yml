@@ -1,0 +1,262 @@
+version: '3.8'
+
+networks:
+  payment-network:
+    driver: bridge
+    name: payment-network
+
+services:
+  # ==========================================
+  # Relational Database (User Profiles)
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dev-postgres
+    networks:
+      - payment-network
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: payment_admin
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: user_profile_db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment_admin -d user_profile_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # NoSQL Database (Audit & Ledger)
+  # ==========================================
+  mongodb:
+    image: mongo:6.0
+    container_name: dev-mongodb
+    networks:
+      - payment-network
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo_admin
+      MONGO_INITDB_ROOT_PASSWORD: local_dev_password
+      MONGO_INITDB_DATABASE: audit_ledger_db
+    restart: unless-stopped
+
+  # ==========================================
+  # Event Streaming (Kafka + Zookeeper)
+  # ==========================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: dev-zookeeper
+    networks:
+      - payment-network
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: dev-kafka
+    depends_on:
+      - zookeeper
+    networks:
+      - payment-network
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # ==========================================
+  # Metrics (Prometheus + Grafana)
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: dev-prometheus
+    networks:
+      - payment-network
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.1.2
+    container_name: dev-grafana
+    depends_on:
+      - prometheus
+    networks:
+      - payment-network
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin_password
+    restart: unless-stopped
+
+  # ==========================================
+  # Distributed Tracing (Zipkin)
+  # ==========================================
+  zipkin:
+    image: openzipkin/zipkin:2.24.2
+    container_name: dev-zipkin
+    networks:
+      - payment-network
+    ports:
+      - "9411:9411"
+    restart: unless-stopped
+
+  # ==========================================
+  # Centralized Logging (ELK Stack)
+  # ==========================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    container_name: dev-elasticsearch
+    networks:
+      - payment-network
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.10.2
+    container_name: dev-logstash
+    depends_on:
+      - elasticsearch
+    networks:
+      - payment-network
+    ports:
+      - "5044:5044"
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+    command: logstash -e 'input { tcp { port => 5044 codec => json } } output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "microservices-logs-%%{+YYYY.MM.dd}" } stdout { codec => rubydebug } }'
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.2
+    container_name: dev-kibana
+    depends_on:
+      - elasticsearch
+    networks:
+      - payment-network
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    restart: unless-stopped
+
+  # ==========================================
+  # APPLICATION MICROSERVICES
+  # ==========================================
+
+  go-bff:
+    build:
+      context: ../go-bff
+    container_name: app-go-bff
+    ports:
+      - "8080:8080"
+    networks:
+      - payment-network
+    environment:
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}
+
+  spring-gateway:
+    build:
+      context: ../spring-gateway
+    container_name: app-spring-gateway
+    ports:
+      - "8081:8081"
+    networks:
+      - payment-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${DB_NAME}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+
+  payment-ingestion:
+    build:
+      context: ../payment-ingestion
+    container_name: app-payment-ingestion
+    ports:
+      - "8082:8082"
+    networks:
+      - payment-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${DB_NAME}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+
+  ai-risk-evaluator:
+    build:
+      context: ../ai-risk-evaluator
+    container_name: app-ai-risk-evaluator
+    ports:
+      - "8083:8083"
+    networks:
+      - payment-network
+    depends_on:
+      kafka:
+        condition: service_started
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+
+  audit-ledger:
+    build:
+      context: ../audit-ledger
+    container_name: app-audit-ledger
+    ports:
+      - "8084:8084"
+    networks:
+      - payment-network
+    depends_on:
+      kafka:
+        condition: service_started
+      mongodb:
+        condition: service_started
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@dev-mongodb:27017/${MONGO_DB}?authSource=admin
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+
+  autonomous-sre-agent:
+    build:
+      context: ../autonomous-sre-agent
+    container_name: app-autonomous-sre-agent
+    ports:
+      - "8085:8085"
+    networks:
+      - payment-network
+    depends_on:
+      - prometheus
+      - elasticsearch
+    environment:
+      - SPRING_AI_ANTHROPIC_API_KEY=${SPRING_AI_ANTHROPIC_API_KEY}
+      - PROMETHEUS_URL=${PROMETHEUS_ENDPOINT}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_ENDPOINT}
+      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}

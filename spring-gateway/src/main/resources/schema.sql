@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+CREATE TABLE IF NOT EXISTS merchants (
+    merchant_id VARCHAR(255) PRIMARY KEY,
+    is_active BOOLEAN NOT NULL DEFAULT true
+    );

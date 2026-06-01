@@ -1,0 +1,35 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: payment-gateway
+  main:
+    web-application-type: reactive
+
+  # Native R2DBC auto-configuration
+  r2dbc:
+    url: ${SPRING_DATASOURCE_URL:r2dbc:postgresql://dev-postgres:5432/user_profile_db}
+    username: ${POSTGRES_USER:payment_admin}
+    password: ${POSTGRES_PASSWORD:local_dev_password}
+  sql:
+    init:
+      mode: always
+
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0 # 100% sampling rate for local development
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://dev-zipkin:9411/api/v2/spans}
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+
+logging:
+  level:
+    com.payment: INFO
+    org.springframework.cloud.gateway: INFO

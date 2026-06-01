@@ -1,0 +1,35 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: payment-ingestion
+
+  r2dbc:
+    url: ${SPRING_DATASOURCE_URL}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+        acks: "1"
+
+payment:
+  kafka:
+    topic: incoming-payments
+
+# Tracing and Metrics Configuration
+management:
+  tracing:
+    sampling:
+      probability: 1.0 # 100% sampling for local dev tracing
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

@@ -1,0 +1,28 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: autonomous-sre-agent
+  ai:
+    anthropic:
+      api-key: ${SPRING_AI_ANTHROPIC_API_KEY}
+      chat:
+        options:
+          model: claude-3-5-sonnet-20240620
+          temperature: 0.1
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0 # Sample all traces for precise SRE diagnostics
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+
+# Application Custom Properties for Local Integrations
+app:
+  elasticsearch:
+    url: ${ELASTICSEARCH_URL:http://localhost:9211}
+  prometheus:
+    url: ${PROMETHEUS_URL:http://localhost:9090}

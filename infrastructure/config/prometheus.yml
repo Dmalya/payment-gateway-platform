@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 2. Go BFF (Exposing standard Prometheus metrics)
+  - job_name: 'go-bff'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['app-go-bff:8080']
+
+  # 3. Spring Boot Apps (Using Micrometer Actuator endpoint)
+  - job_name: 'spring-microservices'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+        - 'app-spring-gateway:8081'
+        - 'app-payment-ingestion:8082'
+        - 'app-ai-risk-evaluator:8083'
+        - 'app-audit-ledger:8084'
+        - 'app-autonomous-sre-agent:8085'
