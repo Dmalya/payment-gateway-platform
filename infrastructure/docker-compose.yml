@@ -17,12 +17,12 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: payment_admin
-      POSTGRES_PASSWORD: local_dev_password
-      POSTGRES_DB: user_profile_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payment_admin -d user_profile_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,9 +38,9 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: mongo_admin
-      MONGO_INITDB_ROOT_PASSWORD: local_dev_password
-      MONGO_INITDB_DATABASE: audit_ledger_db
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
     restart: unless-stopped
 
   # ==========================================
@@ -98,8 +98,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin_password
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_password}
     restart: unless-stopped
 
   # ==========================================
@@ -141,7 +141,7 @@ services:
       - "5044:5044"
     environment:
       - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
-    command: logstash -e 'input { tcp { port => 5044 codec => json } } output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "microservices-logs-%%{+YYYY.MM.dd}" } stdout { codec => rubydebug } }'
+    command: logstash -e 'input { tcp { port => 5044 codec => json } } output { elasticsearch { hosts => ["http://elasticsearch:9200"] index => "microservices-logs-%{+YYYY.MM.dd}" } stdout { codec => rubydebug } }'
     restart: unless-stopped
 
   kibana:
@@ -169,8 +169,9 @@ services:
       - "8080:8080"
     networks:
       - payment-network
+    depends_on:
+      - spring-gateway
     environment:
-      - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
       - LOGSTASH_HOST=${LOGSTASH_HOST}
       - LOGSTASH_PORT=${LOGSTASH_PORT}
 
@@ -186,10 +187,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${DB_NAME}
-      - SPRING_DATASOURCE_USERNAME=${DB_USER}
-      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}
 
   payment-ingestion:
     build:
@@ -205,11 +208,13 @@ services:
       kafka:
         condition: service_started
     environment:
-      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${DB_NAME}
-      - SPRING_DATASOURCE_USERNAME=${DB_USER}
-      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SPRING_DATASOURCE_URL=r2dbc:postgresql://dev-postgres:5432/${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
       - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}
 
   ai-risk-evaluator:
     build:
@@ -223,8 +228,11 @@ services:
       kafka:
         condition: service_started
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+      - SPRING_AI_ANTHROPIC_API_KEY=${SPRING_AI_ANTHROPIC_API_KEY}
       - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}
 
   audit-ledger:
     build:
@@ -240,9 +248,11 @@ services:
       mongodb:
         condition: service_started
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
-      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@dev-mongodb:27017/${MONGO_DB}?authSource=admin
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+      - MONGODB_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@dev-mongodb:27017/${MONGO_INITDB_DATABASE}?authSource=admin
       - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}
 
   autonomous-sre-agent:
     build:
@@ -260,3 +270,5 @@ services:
       - PROMETHEUS_URL=${PROMETHEUS_ENDPOINT}
       - ELASTICSEARCH_URL=${ELASTICSEARCH_ENDPOINT}
       - ZIPKIN_URL=${ZIPKIN_ENDPOINT}
+      - LOGSTASH_HOST=${LOGSTASH_HOST}
+      - LOGSTASH_PORT=${LOGSTASH_PORT}

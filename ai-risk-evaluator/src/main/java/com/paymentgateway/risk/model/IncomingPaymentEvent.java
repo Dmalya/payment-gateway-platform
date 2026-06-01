@@ -3,9 +3,10 @@ package com.paymentgateway.risk.model;
 import java.math.BigDecimal;
 
 public record IncomingPaymentEvent(
-        String userId,
-        BigDecimal amount,
-        String currency,
-        String merchantId,
-        String traceId
+        private String traceId;
+        private String timestamp;
+        private String userId;
+        private BigDecimal amount;
+        private String currency;
+        private String merchantId;
 ) {}
