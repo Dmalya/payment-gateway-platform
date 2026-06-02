@@ -17,8 +17,11 @@ public class PaymentController {
     @PostMapping("/events")
     @ResponseStatus(HttpStatus.ACCEPTED) // Returns 202 immediately upon pipeline completion
     public Mono<Void> ingestPaymentEvent(
-            @RequestHeader(value = "X-Trace-Id", required = true) String traceId,
+            @RequestHeader(value = "traceparent", required = true) String traceparent,
             @RequestBody PaymentRequest request) {
+
+        // Extract the 32-char trace ID from the standard W3C header (00-{traceId}-{spanId}-01)
+        String traceId = traceparent.length() >= 35 ? traceparent.split("-")[1] : traceparent;
 
         return ingestionService.ingestPayment(request, traceId);
     }

@@ -20,16 +20,15 @@ public class PaymentEventConsumer {
 
     @KafkaListener(topics = "risk-scored-payments")
     public void consume(PaymentEvent event) {
-        log.info("Received risk-scored payment event. [X-Trace-Id: {}]", event.xTraceId());
+        String traceId = event.originalPayment().traceId();
+        log.info("Received risk-scored payment event. [TraceId: {}]", traceId);
 
         try {
             PaymentRecord record = PaymentRecord.fromEvent(event);
             PaymentRecord savedRecord = repository.save(record);
-
             log.info("Successfully persisted payment record to ledger. [Record ID: {}]", savedRecord.id());
         } catch (Exception e) {
-            log.error("Failed to persist payment event to audit ledger. [X-Trace-Id: {}]", event.xTraceId(), e);
-            // In a production scenario, you would likely route to a Dead Letter Queue (DLQ) here.
+            log.error("Failed to persist payment event to audit ledger. [TraceId: {}]", traceId, e);
             throw e;
         }
     }

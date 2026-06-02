@@ -27,20 +27,19 @@ public class PaymentIngestionService {
         PaymentEvent event = new PaymentEvent(
                 traceId,
                 Instant.now().toString(),
-                request.getUserId(),
-                request.getAmount(),
-                request.getCurrency(),
-                request.getMerchantId()
+                request.userId(),      // Updated from getUserId()
+                request.amount(),      // Updated from getAmount()
+                request.currency(),    // Updated from getCurrency()
+                request.merchantId()   // Updated from getMerchantId()
         );
 
-        // Correlation metadata is the traceId, useful if you need to track specific emissions
         SenderRecord<String, PaymentEvent, String> record = SenderRecord.create(
-                new ProducerRecord<>(topic, event.getUserId(), event),
+                new ProducerRecord<>(topic, event.userId(), event), // Updated from getUserId()
                 traceId
         );
 
         return kafkaSender.send(Mono.just(record))
                 .doOnError(e -> log.error("Error sending payment event to Kafka. TraceId: {}", traceId, e))
-                .then(); // Emits completion once the Kafka buffer accepts the record
+                .then();
     }
 }

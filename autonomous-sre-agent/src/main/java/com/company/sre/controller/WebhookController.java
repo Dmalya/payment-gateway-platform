@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/webhooks")
@@ -22,17 +23,21 @@ public class WebhookController {
         this.sreAgentService = sreAgentService;
     }
 
-    @PostMapping("/datadog")
-    public ResponseEntity<String> handleDatadogAlert(@RequestBody Map<String, Object> payload) {
-        log.info("Incoming Datadog webhook triggered.");
+    @PostMapping("/alertmanager")
+    public ResponseEntity<String> handleAlertmanagerWebhook(@RequestBody Map<String, Object> payload) {
+        log.info("Incoming Prometheus Alertmanager webhook triggered. Acknowledging immediately.");
 
-        try {
-            String agentResponse = sreAgentService.handleAlert(payload);
-            log.info("SRE Agent Action Summary:\n{}", agentResponse);
-            return ResponseEntity.ok(agentResponse);
-        } catch (Exception e) {
-            log.error("Failed to process alert through SRE Agent", e);
-            return ResponseEntity.internalServerError().body("Agent processing failed.");
-        }
+        // Process asynchronously to prevent Alertmanager timeout loops
+        CompletableFuture.runAsync(() -> {
+            try {
+                String agentResponse = sreAgentService.handleAlert(payload);
+                log.info("SRE Agent Action Summary:\n{}", agentResponse);
+            } catch (Exception e) {
+                log.error("Failed to process alert through SRE Agent", e);
+            }
+        });
+
+        // Instantly satisfy the Prometheus webhook requirement
+        return ResponseEntity.accepted().body("Alert received. SRE Agent is investigating.");
     }
 }

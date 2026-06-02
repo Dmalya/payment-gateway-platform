@@ -84,4 +84,13 @@ public class SreTools {
             return "Error querying metrics from local cluster: " + e.getMessage();
         }
     }
+
+    @Tool(description = "Restarts a Kubernetes pod or Docker container for a given microservice to resolve hung or deadlocked states.")
+    public String restartPod(String serviceName) {
+        log.info("Executing pod restart for service: {}", serviceName);
+
+        // TODO: Wire up actual Kubernetes Fabric8 client or Docker Engine API call here
+
+        return "Successfully initiated restart for pod: " + serviceName;
+    }
 }

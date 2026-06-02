@@ -39,12 +39,13 @@ public class PaymentRiskProcessor {
             EvaluatedPaymentEvent evaluatedEvent = new EvaluatedPaymentEvent(paymentEvent, evaluation);
 
             // 3. Publish to Downstream Topic
-            // Using the traceId as the Kafka Partition Key ensures chronological ordering per request
-            kafkaTemplate.send(OUTPUT_TOPIC, paymentEvent.traceId(), evaluatedEvent);
+            // Using the userId as the Kafka Partition Key ensures chronological ordering per user
+            kafkaTemplate.send(OUTPUT_TOPIC, paymentEvent.userId(), evaluatedEvent).join();
 
         } catch (Exception e) {
             log.error("Failed to process payment risk evaluation for TraceId: {}", paymentEvent.traceId(), e);
-            // In a strict production environment, route the failed payload to a Dead Letter Queue (DLQ) here
+            // Throw exception to prevent offset commit and trigger Kafka retry
+            throw new RuntimeException("Evaluation failed, triggering Kafka retry", e);
         }
     }
 }

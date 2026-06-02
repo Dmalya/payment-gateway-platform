@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"sync"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -33,22 +36,26 @@ type Config struct {
 // resilientWriter writes to a TCP connection but falls back to a secondary
 // writer (Stdout) if the socket drops during runtime.
 type resilientWriter struct {
+	mu       sync.Mutex
 	tcpConn  net.Conn
 	fallback io.Writer
 }
 
 func (w *resilientWriter) Write(p []byte) (n int, err error) {
-	if w.tcpConn != nil {
-		n, err = w.tcpConn.Write(p)
-		if err == nil {
-			return n, nil // slog automatically appends a newline, perfect for Logstash json_lines
-		}
-		// Connection broke during runtime. Close it and fall back to stdout
-		w.tcpConn.Close()
-		w.tcpConn = nil
-	}
-	// Write to os.Stdout if Logstash was never available or just dropped
-	return w.fallback.Write(p)
+	w.mu.Lock()
+        defer w.mu.Unlock()
+
+        if w.tcpConn != nil {
+           n, err = w.tcpConn.Write(p)
+           if err == nil {
+              return n, nil
+           }
+           // Connection broke during runtime. Close it and fall back to stdout
+           w.tcpConn.Close()
+           w.tcpConn = nil
+        }
+        // Write to os.Stdout if Logstash was never available or just dropped
+        return w.fallback.Write(p)
 }
 
 func main() {
@@ -120,63 +127,80 @@ func setupLogger(host, port string) {
 }
 
 func handlePayment(client *http.Client, targetURL string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var payload PaymentRequest
+    return func(w http.ResponseWriter, r *http.Request) {
+       var payload PaymentRequest
 
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload); err != nil {
-			respondWithError(w, http.StatusBadRequest, "Invalid request payload")
-			return
-		}
+       decoder := json.NewDecoder(r.Body)
+       decoder.DisallowUnknownFields()
+       if err := decoder.Decode(&payload); err != nil {
+          respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+          return
+       }
 
-		if payload.Amount <= 0 {
-			respondWithError(w, http.StatusBadRequest, "Amount must be greater than 0")
-			return
-		}
-		if payload.UserID == "" || payload.Currency == "" || payload.MerchantID == "" {
-			respondWithError(w, http.StatusBadRequest, "Missing required fields")
-			return
-		}
+       if payload.Amount <= 0 {
+          respondWithError(w, http.StatusBadRequest, "Amount must be greater than 0")
+          return
+       }
+       if payload.UserID == "" || payload.Currency == "" || payload.MerchantID == "" {
+          respondWithError(w, http.StatusBadRequest, "Missing required fields")
+          return
+       }
 
-		traceID := uuid.New().String()
-		log := slog.With("traceId", traceID, "userId", payload.UserID)
+       // 1. Generate a standard W3C traceparent: 00-{32 hex trace ID}-{16 hex span ID}-01
+       rawUUID := strings.ReplaceAll(uuid.New().String(), "-", "")
+       traceID := rawUUID                 // 32 chars
+       spanID := rawUUID[:16]             // 16 chars
+       traceparent := fmt.Sprintf("00-%s-%s-01", traceID, spanID)
 
-		reqBytes, err := json.Marshal(payload)
-		if err != nil {
-			log.Error("Failed to marshal forwarded payload", "error", err.Error())
-			respondWithError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
+       log := slog.With("traceId", traceID, "userId", payload.UserID)
 
-		outboundReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(reqBytes))
-		if err != nil {
-			log.Error("Failed to create outbound request", "error", err.Error())
-			respondWithError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
+       reqBytes, err := json.Marshal(payload)
+       if err != nil {
+          log.Error("Failed to marshal forwarded payload", "error", err.Error())
+          respondWithError(w, http.StatusInternalServerError, "Internal server error")
+          return
+       }
 
-		outboundReq.Header.Set("Content-Type", "application/json")
-		outboundReq.Header.Set("X-Trace-Id", traceID)
+       outboundReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(reqBytes))
+       if err != nil {
+          log.Error("Failed to create outbound request", "error", err.Error())
+          respondWithError(w, http.StatusInternalServerError, "Internal server error")
+          return
+       }
 
-		resp, err := client.Do(outboundReq)
-		if err != nil {
-			log.Error("Failed to forward request to gateway", "error", err.Error())
-			respondWithError(w, http.StatusBadGateway, "Gateway unavailable")
-			return
-		}
-		defer resp.Body.Close()
+       // 2. Set W3C header instead of custom X-Trace-Id
+       outboundReq.Header.Set("Content-Type", "application/json")
+       outboundReq.Header.Set("traceparent", traceparent)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Trace-Id", traceID)
-		w.WriteHeader(resp.StatusCode)
+       resp, err := client.Do(outboundReq)
+       if err != nil {
+          log.Error("Failed to forward request to gateway", "error", err.Error())
+          respondWithError(w, http.StatusBadGateway, "Gateway unavailable")
+          return
+       }
+       defer resp.Body.Close()
 
-		if _, err := io.Copy(w, resp.Body); err != nil {
-			log.Error("Failed to write response body", "error", err.Error())
-		}
+       // 3. Return W3C header to the client
+       w.Header().Set("Content-Type", "application/json")
+       w.Header().Set("traceparent", traceparent)
+       w.WriteHeader(resp.StatusCode)
 
-		log.Info("Payment request processed successfully", "status", resp.StatusCode)
-	}
+       if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+                 io.Copy(io.Discard, resp.Body) // Drain the connection
+                 json.NewEncoder(w).Encode(map[string]string{
+                    "status":  "accepted",
+                    "message": "Payment event ingested successfully",
+                    "traceId": traceID,
+                 })
+              } else {
+                 // Proxy downstream error payloads (e.g., Spring validation errors)
+                 if _, err := io.Copy(w, resp.Body); err != nil {
+                    log.Error("Failed to write error response body", "error", err.Error())
+                 }
+              }
+
+       log.Info("Payment request processed", "status", resp.StatusCode)
+    }
 }
 
 func respondWithError(w http.ResponseWriter, code int, message string) {

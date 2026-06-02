@@ -28,8 +28,11 @@ public class GatewayConfig {
                         .filters(f -> f
                                 // 1. Log and trace
                                 .filter((exchange, chain) -> {
-                                    String traceId = exchange.getRequest().getHeaders().getFirst("X-Trace-Id");
-                                    log.info("Incoming payment request. X-Trace-Id: {}", traceId != null ? traceId : "MISSING");
+                                    String traceparent = exchange.getRequest().getHeaders().getFirst("traceparent");
+                                    String traceId = (traceparent != null && traceparent.length() >= 35)
+                                            ? traceparent.split("-")[1]
+                                            : "MISSING";
+                                    log.info("Incoming payment request. TraceId: {}", traceId);
                                     return chain.filter(exchange);
                                 })
                                 .rewritePath("/ingest", "/api/v1/events")  // ← add this

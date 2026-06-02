@@ -9,30 +9,27 @@ import java.time.Instant;
 
 @Document(collection = "payment_ledger")
 public record PaymentRecord(
-        @Id
-        String id,
+        @Id String id,
         String userId,
         BigDecimal amount,
         String currency,
         String merchantId,
-        Double riskScore,
+        Integer riskScore,
         String decision,
-        String xTraceId,
-        @CreatedDate
-        Instant createdAt
+        String traceId,
+        @CreatedDate Instant createdAt
 ) {
-    // Custom constructor to handle creation from a Kafka DTO without setting an ID
     public static PaymentRecord fromEvent(PaymentEvent event) {
         return new PaymentRecord(
-                null, // Let MongoDB auto-generate the ID
-                event.userId(),
-                event.amount(),
-                event.currency(),
-                event.merchantId(),
-                event.riskScore(),
-                event.decision(),
-                event.xTraceId(),
-                null  // @CreatedDate will populate this upon save
+                null,
+                event.originalPayment().userId(),
+                event.originalPayment().amount(),
+                event.originalPayment().currency(),
+                event.originalPayment().merchantId(),
+                event.riskEvaluation().riskScore(),
+                event.riskEvaluation().decision(),
+                event.originalPayment().traceId(),
+                null
         );
     }
 }
