@@ -1,0 +1,32 @@
+name: Platform CI/CD Pipeline
+
+# Trigger the workflow on pushes and pull requests to the main branch
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven # Speeds up future builds by caching dependencies
+
+      - name: Build Spring Boot Microservices
+        # Runs the aggregator POM we created earlier
+        run: mvn clean package -DskipTests 
+        
+      # Optional but highly recommended: Verify Docker Compose builds
+      - name: Verify Docker Infrastructure Build
+        working-directory: ./infrastructure
+        run: docker-compose build
