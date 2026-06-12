@@ -10,16 +10,18 @@ spring:
       enabled: true
 
   kafka:
-    bootstrap-servers: ${KAFKA_BROKERS:kafka:29092} # Default to local docker kafka network
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:29092} # Default to local docker kafka network
 
     consumer:
       group-id: risk-evaluator-group
       auto-offset-reset: earliest
+      max-poll-records: 1
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
         spring.json.value.default.type: com.paymentgateway.risk.model.IncomingPaymentEvent
+        max.poll.interval.ms: 900000
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -30,7 +32,7 @@ spring:
       api-key: ${SPRING_AI_ANTHROPIC_API_KEY}
       chat:
         options:
-          model: claude-3-haiku-20240307
+          model: claude-sonnet-4-6
           temperature: 0.1
           max-tokens: 250
 

@@ -3,5 +3,5 @@ INSERT INTO users (id, name, status)
 VALUES ('usr_998877', 'John Doe', 'ACTIVE')
     ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO merchants (merchant_id, is_active) VALUES ('merch_123', 'PKDJ', true)
+INSERT INTO merchants (merchant_id, name, is_active) VALUES ('merch_123', 'PKDJ', true)
     ON CONFLICT (merchant_id) DO NOTHING;
